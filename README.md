@@ -26,9 +26,101 @@ The system now uses a **Job Queue Pattern** to decouple user requests from the h
 
 ---
 
-## 🔐 Authentication (Unchanged)
-Use `/api/v1/auth/*` endpoints as before.
+## 🔐 Authentication
 
+### **1. Send Verification Code**
+Sends a 6-digit OTP to the user's email.
+
+- **Endpoint:** `POST /api/v1/auth/send-otp`
+- **Auth Required:** No
+
+#### **Request Body**
+```json
+{
+  "email": "dev@example.com",
+  "name": "Dev User"
+}
+```
+
+#### **Success Response**
+```json
+{
+  "message": "Verification code sent to your email."
+}
+```
+
+---
+
+### **2. Register (Verify OTP & Create Account)**
+Verifies the OTP and creates the account.
+
+- **Endpoint:** `POST /api/v1/auth/register`
+- **Auth Required:** No
+
+#### **Request Body**
+```json
+{
+  "email": "dev@example.com",
+  "password": "securepassword123",
+  "otp": "123456",
+  "name": "Dev User"
+}
+```
+
+#### **Success Response (201 Created)**
+```json
+{
+  "message": "User verification successful and account created.",
+  "token": "eyJhbGciOiJIUzI1NiIsIn...",
+  "user": {
+    "id": 1,
+    "name": "Dev User",
+    "email": "dev@example.com"
+  }
+}
+```
+
+---
+
+### **3. Login**
+Authenticates a user and returns a JWT token.
+
+- **Endpoint:** `POST /api/v1/auth/login`
+- **Auth Required:** No
+
+#### **Request Body**
+```json
+{
+  "email": "dev@example.com",
+  "password": "securepassword123"
+}
+```
+
+#### **Success Response (200 OK)**
+```json
+{
+  "message": "Login successful",
+  "token": "eyJhbGciOiJIUzI1NiIsIn..."
+}
+```
+
+---
+
+### **4. Get User Profile**
+Retrieves the currently logged-in user's details.
+
+- **Endpoint:** `GET /api/v1/auth/me`
+- **Auth Required:** ✅ Yes (Bearer Token)
+
+#### **Success Response (200 OK)**
+```json
+{
+  "id": 1,
+  "email": "dev@example.com",
+  "name": "Dev User",
+  "joinedAt": "2024-02-16T12:00:00Z"
+}
+```
 ---
 
 ## 🔍 Search API (Async workflow)
