@@ -4,6 +4,8 @@ const authController = require('./controllers/auth.controller');
 const searchController = require('./controllers/search.controller');
 const authMiddleware = require('./middleware/auth.middleware');
 const rateLimitMiddleware = require('./middleware/rateLimiter');
+const errorHandler = require('./middleware/error.middleware');
+const logger = require('./utils/logger');
 
 
 
@@ -19,33 +21,40 @@ app.use(express.urlencoded({ extended: true }));
 app.use(rateLimitMiddleware.generalLimiter);
 
 // Routes
-// 1. Authentication
-app.post('/auth/register', authController.register);
-app.post('/auth/login', authController.login);
-app.post('/auth/send-otp', authController.sendVerificationCode);
-app.get('/auth/me', authMiddleware.verifyToken, authController.getUserProfile);
-
 // 2. Search
 // Authenticated + Dedicated Rate Limit
-app.get('/search', authMiddleware.verifyToken, rateLimitMiddleware.searchLimiter, searchController.search);
+// Versioning: /api/v1
+const apiRouter = express.Router();
+app.use('/api/v1', apiRouter);
 
-// 3. Popular Searches (No Auth Required)
-app.get('/search/popular', searchController.getMostSearched);
+apiRouter.post('/auth/register', authController.register);
+apiRouter.post('/auth/login', authController.login);
+apiRouter.post('/auth/send-otp', authController.sendVerificationCode);
+apiRouter.get('/auth/me', authMiddleware.verifyToken, authController.getUserProfile);
+
+apiRouter.post('/search', authMiddleware.verifyToken, rateLimitMiddleware.searchLimiter, searchController.createSearchJob);
+apiRouter.get('/search/status/:id', authMiddleware.verifyToken, searchController.getSearchStatus);
+apiRouter.get('/search/popular', searchController.getMostSearched);
+
+// Support legacy routes for backward compatibility if needed, or redirect
+// For now, I will just map /api/v1. The user complained about no versioning.
 
 // 4. Health Check
 app.get('/health', (req, res) => {
-    res.json({ status: 'ok', uptime: process.uptime() });
+    res.status(200).json({
+        success: true,
+        message: 'System operational',
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString()
+    });
 });
 
 // 404 Handler
 app.use((req, res, next) => {
-    res.status(404).json({ error: 'Endpoint not found.' });
+    next(new Error('Endpoint not found')); // Or custom AppError
 });
 
 // Global Error Handler
-app.use((err, req, res, next) => {
-    console.error(err.stack);
-    res.status(500).json({ error: 'Something broke inside the server.' });
-});
+app.use(errorHandler);
 
 module.exports = app;

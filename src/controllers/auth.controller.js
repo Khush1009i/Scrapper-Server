@@ -1,3 +1,4 @@
+const AppError = require('../utils/AppError');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 
@@ -48,8 +49,7 @@ exports.sendVerificationCode = async (req, res) => {
         }
 
     } catch (err) {
-        console.error('OTP Error:', err);
-        res.status(500).json({ error: 'Server error sending OTP.' });
+        next(err);
     }
 };
 
@@ -121,8 +121,7 @@ exports.register = async (req, res) => {
             user: { id: userId, name: userName, email: email }
         });
     } catch (err) {
-        console.error('Registration Error:', err);
-        res.status(500).json({ error: 'Server error during registration.' });
+        next(err);
     }
 };
 
@@ -159,8 +158,7 @@ exports.login = async (req, res) => {
 
         res.json({ message: 'Login successful', token });
     } catch (err) {
-        console.error('Login Error:', err);
-        res.status(500).json({ error: 'Server error during login.' });
+        next(err);
     }
 };
 
@@ -182,7 +180,6 @@ exports.getUserProfile = async (req, res) => {
             joinedAt: user.created_at
         });
     } catch (err) {
-        console.error('Get Profile Error:', err);
-        res.status(500).json({ error: 'Server error retrieving profile.' });
+        next(err);
     }
 };

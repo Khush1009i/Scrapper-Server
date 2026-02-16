@@ -1,188 +1,105 @@
 # 🗺️ Scraper Server API Documentation
 
-This backend provides a real-time Google Maps scraping service, authenticated via JWT.
+This backend system provides a stable, asynchronous scraping service for Google Maps, utilizing a job queue architecture to handle high concurrency and ensure reliability.
 
 ## 🚀 Base URL
 
 ```
-http://localhost:3000
+http://localhost:3000/api/v1
 ```
 
 ---
 
-## 🔐 1. Authentication
+## 🏗️ Architecture: Asynchronous Job Queue
 
-### **1. Send Verification Code**
-Sends a 6-digit OTP to the user's email.
+The system now uses a **Job Queue Pattern** to decouple user requests from the heavy scraping process.
 
-- **Endpoint:** `POST /auth/send-otp`
-- **Auth Required:** No
+1.  **Request**: User sends a scraping request (`POST /search`).
+2.  **Queue**: Server accepts request, creates a job in SQLite, and returns a `jobId` immediately (202 Accepted).
+3.  **Process**: A background worker picks up the job, performs the scrape (with retries and timeouts), and updates the database.
+4.  **Poll**: User polls the status endpoint (`GET /search/status/:id`) to get the results.
 
-#### **Request Body**
-```json
-{
-  "email": "dev@example.com",
-  "name": "Dev User" // Optional
-}
-}
-```
+### **Benefits**
+- **Stability**: Server never hangs waiting for a scrape.
+- **Concurrency**: Controlled worker pool (default 2-5 concurrent scrapes).
+- **Persistence**: Jobs are saved in SQLite, so they survive server restarts (until processed).
 
 ---
 
-### **2. Register (Verify OTP & Create Account)**
-Verifies the OTP and creates the account.
+## 🔐 Authentication (Unchanged)
+Use `/api/v1/auth/*` endpoints as before.
 
-- **Endpoint:** `POST /auth/register`
-- **Auth Required:** No
+---
+
+## 🔍 Search API (Async workflow)
+
+### **1. Initiate Search Job**
+Creates a new scraping job.
+
+- **Endpoint:** `POST /api/v1/search`
+- **Auth Required:** ✅ Yes (Bearer Token)
+- **Content-Type:** `application/json`
 
 #### **Request Body**
 ```json
 {
-  "email": "dev@example.com",
-  "password": "securepassword123",
-  "otp": "123456",
-  "name": "Dev User" // Optional (Overrides name provided in Send OTP)
-}
+  "q": "gym",
+  "location": "Bhilwara"
 }
 ```
 
-#### **Success Response (201 Created)**
+#### **Success Response (202 Accepted)**
 ```json
 {
-  "message": "User verification successful and account created.",
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "user": {
-    "id": "123...",
-    "name": "Dev User",
-    "email": "dev@example.com"
+  "success": true,
+  "message": "Search job accepted. Please poll the status endpoint for results.",
+  "jobId": 15,
+  "statusUrl": "/api/v1/search/status/15"
+}
+```
+
+### **2. Check Job Status & Get Results**
+Poll this endpoint every few seconds until `status` is `"completed"`.
+
+- **Endpoint:** `GET /api/v1/search/status/:jobId`
+- **Auth Required:** ✅ Yes (Bearer Token)
+
+#### **Response (Pending/Processing)**
+```json
+{
+  "success": true,
+  "status": "processing",
+  "data": null,
+  "created_at": "2024-02-16T12:00:00Z"
+}
+```
+
+#### **Response (Completed)**
+```json
+{
+  "success": true,
+  "status": "completed",
+  "data": {
+    "query": "gym",
+    "location": "Bhilwara, Rajasthan, India",
+    "results": [
+      {
+        "name": "Gold's Gym",
+        "rating": 4.5,
+        ...
+      }
+    ],
+    "count": 5
   }
 }
 ```
 
----
-
-### **Login**
-Authenticates a user and returns a JWT token.
-
-- **Endpoint:** `POST /auth/login`
-- **Auth Required:** No
-
-#### **Request Body (`application/json`)**
-| Field | Type | Required | Description |
-| :--- | :--- | :--- | :--- |
-| `email` | `string` | ✅ Yes | Registered email |
-| `password` | `string` | ✅ Yes | User password |
-
-**Example:**
+#### **Response (Failed)**
 ```json
 {
-  "email": "dev@example.com",
-  "password": "securepassword123"
-}
-```
-
-#### **Success Response (200 OK)**
-```json
-{
-  "message": "Login successful",
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-}
-```
-
-### **Get User Profile**
-Retrieves the currently logged-in user's details.
-
-- **Endpoint:** `GET /auth/me`
-- **Auth Required:** ✅ Yes (Bearer Token)
-
-#### **Success Response (200 OK)**
-```json
-{
-  "id": "17382910...",
-  "email": "dev@example.com",
-  "name": "Dev User",
-  "joinedAt": "2024-02-16T12:00:00.000Z"
-}
-```
-
----
-
-## 🔍 2. Search & Scraping
-**⚠️ Rate Limit:** 5 requests per minute per user.
-
-### **Search Businesses**
-Scrapes Google Maps for businesses matching the query at the specific location.
-
-- **Endpoint:** `GET /search`
-- **Auth Required:** ✅ Yes (Bearer Token)
-
-#### **Headers**
-| Key | Value | Description |
-| :--- | :--- | :--- |
-| `Authorization` | `Bearer <your_token>` | The JWT token received from login |
-
-#### **Query Parameters**
-| Parameter | Type | Required | Description | Example |
-| :--- | :--- | :--- | :--- | :--- |
-| `q` | `string` | ✅ Yes | Check query term | `salon`, `gym` |
-| `lat` | `float` | ❌ No* | Latitude (*Required if no location) | `25.34` |
-| `lng` | `float` | ❌ No* | Longitude (*Required if no location) | `74.64` |
-| `location` | `string` | ❌ No* | City/Address (*Required if no lat/lng) | `Bhilwara, Rajasthan` |
-
-**Example URLs:**
-- By Coords: `http://localhost:3000/search?q=gym&lat=25.34&lng=74.64`
-- By Location: `http://localhost:3000/search?q=gym&location=Bhilwara`
-
-#### **Success Response (200 OK)**
-```json
-{
-  "query": "gym",
-  "location": "Bhilwara",
-  "center": {
-    "lat": 25.34,
-    "lng": 74.64
-  },
-  "results": [
-    {
-      "name": "Gold's Gym",
-      "rating": 4.5,
-      "reviews": 320,
-      "address": "123 Fitness St...",
-      "phone": "+91 9876543210",
-      "website": "http://goldsgym.com",
-      "latitude": 25.3412,
-      "longitude": 74.6412,
-      "image": "https://lh5.googleusercontent.com/p/AF1Qip..."
-    }
-  ],
-  "count": 1
-}
-```
-
-#### **Error Responses**
-- **400 Bad Request:** Missing parameters or invalid coordinates.
-- **401 Unauthorized:** Missing token.
-- **403 Forbidden:** Invalid token.
-- **429 Too Many Requests:** Rate limit exceeded.
-- **500 Server Error:** Scraper failure.
-
----
-
-## 🔥 3. Popular Searches
-Get a list of trending or most searched categories.
-
-- **Endpoint:** `GET /search/popular`
-- **Auth Required:** ❌ No
-
-#### **Success Response (200 OK)**
-```json
-{
-  "categories": [
-    "Restaurants",
-    "Tech",
-    "IT Company",
-    "Tea & Coffee"
-  ]
+  "success": true,
+  "status": "failed",
+  "error": "Scraper timeout exceeded."
 }
 ```
 
@@ -195,19 +112,8 @@ Get a list of trending or most searched categories.
    npm install
    ```
 
-2. **Environment Variables**
-   Ensure `.env` exists:
-   ```env
-   PORT=3000
-   JWT_SECRET=supersecretbackendkey
-   MONGO_URI=mongodb://localhost:27017/scrapper-server
-   ```
-
-3. **Database**
-   - Install **MongoDB Community Server**.
-   - Make sure MongoDB is running locally on port `27017`.
-
-4. **Start Server**
+2. **Start Server (and Worker)**
    ```bash
    npm run dev
    ```
+   The server will automatically start the background queue worker.

@@ -1,56 +1,75 @@
-const { scrapeGoogleMaps } = require('../scraper/maps.scraper');
-const { validateSearchInput } = require('../utils/validator');
-const { formatListing } = require('../utils/formatter');
+const searchService = require('../services/search.service');
+const jobQueue = require('../services/queue.service');
+const logger = require('../utils/logger');
+const AppError = require('../utils/AppError');
 
-exports.search = async (req, res) => {
+// Endpoint: POST /api/v1/search (Async Job Creation)
+exports.createSearchJob = async (req, res, next) => {
     try {
-        const { q, lat, lng, location } = req.query;
-        console.time('SearchRequestDuration'); // Start timer
+        logger.info(`Incoming search job request: ${JSON.stringify(req.body)}`);
 
-        console.log(`Received search request: q=${q}, lat=${lat}, lng=${lng}, location=${location}`);
+        // Use query params for GET or body for POST - supporting both for flexibility 
+        // But standardized rest usually implies POST for creating resource (Job)
+        const queryPayload = Object.keys(req.body).length > 0 ? req.body : req.query;
 
-        // 1. Validate Input
-        const validation = validateSearchInput(q, lat, lng, location);
-        if (!validation.valid) {
-            return res.status(400).json({ error: validation.message });
+        // Basic validation before queuing
+        if (!queryPayload.q) {
+            throw new AppError('Search query (q) is required.', 400);
         }
 
-        const latitude = lat ? parseFloat(lat) : null;
-        const longitude = lng ? parseFloat(lng) : null;
+        // Add to Queue
+        const jobId = await jobQueue.addJob(req.user.id, queryPayload);
 
-        // 2. Call Scraper Engine
-        const rawResults = await scrapeGoogleMaps(q, latitude, longitude, location);
-
-        // 3. Clean Data
-        const cleanResults = rawResults.map(formatListing).filter(item => item.name); // Filter out empty names
-
-        // 4. Return Response
-        const responseProxy = {
-            query: q,
-            location: location || "Custom Coordinates",
-            center: {
-                lat: latitude,
-                lng: longitude
-            },
-            results: cleanResults,
-            count: cleanResults.length
-        };
-
-        console.timeEnd('SearchRequestDuration'); // End timer and log
-        res.json(responseProxy);
+        res.status(202).json({
+            success: true,
+            message: 'Search job accepted. Please poll the status endpoint for results.',
+            jobId: jobId,
+            statusUrl: `/api/v1/search/status/${jobId}`
+        });
 
     } catch (error) {
-        console.error('Search Controller Error:', error);
-        res.status(500).json({ error: error.message || 'Internal server error during search.' });
+        next(error);
     }
 };
 
-exports.getMostSearched = (req, res) => {
-    const popularCategories = [
-        "Restaurants",
-        "Tech",
-        "IT Company",
-        "Tea & Coffee"
-    ];
-    res.json({ categories: popularCategories });
+// Endpoint: GET /api/v1/search/status/:id
+exports.getSearchStatus = async (req, res, next) => {
+    try {
+        const jobId = req.params.id;
+        const job = await jobQueue.getJob(jobId, req.user.id);
+
+        if (!job) {
+            throw new AppError('Job not found or unauthorized.', 404);
+        }
+
+        res.status(200).json({
+            success: true,
+            status: job.status,
+            data: job.data, // This will be null if pending/processing
+            error: job.error,
+            created_at: job.created_at,
+            updated_at: job.updated_at
+        });
+
+    } catch (error) {
+        next(error);
+    }
+};
+
+exports.getMostSearched = (req, res, next) => {
+    try {
+        const popularCategories = [
+            "Restaurants",
+            "Tech",
+            "IT Company",
+            "Tea & Coffee"
+        ];
+
+        res.status(200).json({
+            success: true,
+            data: { categories: popularCategories }
+        });
+    } catch (error) {
+        next(error);
+    }
 };

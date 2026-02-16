@@ -18,7 +18,19 @@ async function initDB() {
             name TEXT,
             password TEXT NOT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
+        );
+
+        CREATE TABLE IF NOT EXISTS search_jobs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            query TEXT,
+            location TEXT,
+            status TEXT DEFAULT 'pending', -- pending, processing, completed, failed
+            result TEXT, -- JSON string
+            error TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
     `);
     console.log('Database initialized successfully: database.sqlite');
     return db;
